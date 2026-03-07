@@ -48,11 +48,11 @@ function initMysqlPool() {
     )
   );
 
-  const host = firstNonEmpty(process.env.DB_HOST, process.env.MYSQLHOST, process.env.MYSQL_HOST, urlConfig?.host) || '127.0.0.1';
-  const portRaw = firstNonEmpty(process.env.DB_PORT, process.env.MYSQLPORT, process.env.MYSQL_PORT, urlConfig?.port);
-  const user = firstNonEmpty(process.env.DB_USER, process.env.MYSQLUSER, process.env.MYSQL_USER, urlConfig?.user) || 'root';
-  const password = firstNonEmpty(process.env.DB_PASSWORD, process.env.MYSQLPASSWORD, process.env.MYSQL_PASSWORD, urlConfig?.password);
-  const database = firstNonEmpty(process.env.DB_NAME, process.env.MYSQLDATABASE, process.env.MYSQL_DATABASE, urlConfig?.database) || 'learnlight';
+  const host = firstNonEmpty(urlConfig?.host, process.env.DB_HOST, process.env.MYSQLHOST, process.env.MYSQL_HOST) || '127.0.0.1';
+  const portRaw = firstNonEmpty(urlConfig?.port, process.env.DB_PORT, process.env.MYSQLPORT, process.env.MYSQL_PORT);
+  const user = firstNonEmpty(urlConfig?.user, process.env.DB_USER, process.env.MYSQLUSER, process.env.MYSQL_USER) || 'root';
+  const password = firstNonEmpty(urlConfig?.password, process.env.DB_PASSWORD, process.env.MYSQLPASSWORD, process.env.MYSQL_PASSWORD);
+  const database = firstNonEmpty(urlConfig?.database, process.env.DB_NAME, process.env.MYSQLDATABASE, process.env.MYSQL_DATABASE) || 'learnlight';
 
   pool = mysql.createPool({
     host,
