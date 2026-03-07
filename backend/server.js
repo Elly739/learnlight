@@ -21,11 +21,23 @@ function buildCorsOptions() {
     .filter(Boolean);
   if (!allowed.length) return {};
 
+  function toRegexPattern(entry) {
+    if (!entry.includes('*')) return null;
+    const escaped = entry.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+    return new RegExp(`^${escaped}$`);
+  }
+
+  const allowedExact = allowed.filter((x) => !x.includes('*'));
+  const allowedPatterns = allowed
+    .map((x) => toRegexPattern(x))
+    .filter(Boolean);
+
   return {
     origin(origin, callback) {
       // Allow non-browser and same-origin requests without an Origin header.
       if (!origin) return callback(null, true);
-      if (allowed.includes(origin)) return callback(null, true);
+      if (allowedExact.includes(origin)) return callback(null, true);
+      if (allowedPatterns.some((pattern) => pattern.test(origin))) return callback(null, true);
       return callback(new Error('Not allowed by CORS'));
     }
   };
