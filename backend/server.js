@@ -36,6 +36,14 @@ function createApp() {
   app.use(cors(buildCorsOptions()));
   app.use(express.json());
 
+  app.get('/', (req, res) =>
+    res.json({
+      service: 'learnlight-backend',
+      status: 'ok',
+      health: '/api/health'
+    })
+  );
+
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
   app.use('/api/auth', authRoutes);
