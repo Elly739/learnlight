@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: learnlight-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAILS
+        value: iamellyokello@gmail.com
+      # Set your frontend URL after deploying Vercel:
+      # - key: ALLOWED_ORIGINS
+      #   value: https://your-vercel-app.vercel.app
+      #
+      # Configure one database strategy:
+      # 1) Managed MySQL
+      # - key: DB_HOST
+      # - key: DB_PORT
+      # - key: DB_USER
+      # - key: DB_PASSWORD
+      # - key: DB_NAME
+      #
+      # 2) SQLite fallback (not ideal for production persistence)
+      # - key: FORCE_SQLITE
+      #   value: "1"

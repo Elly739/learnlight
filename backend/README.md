@@ -37,3 +37,23 @@ API endpoints (summary)
 - `POST /api/quiz/submit` - submit answers
 - `GET /api/downloads` - list resources
 - `GET /api/downloads/lesson/:lessonId` - lesson resources
+
+Deployment (Render)
+
+1. Push this repo to GitHub.
+2. In Render, create a new `Web Service` from the repo.
+3. Set `Root Directory` to `backend` (or use the root `render.yaml` blueprint).
+4. Environment variables:
+
+```bash
+JWT_SECRET=<strong random string>
+ADMIN_EMAILS=iamellyokello@gmail.com
+ALLOWED_ORIGINS=https://your-frontend.vercel.app
+```
+
+5. Database options:
+- Recommended: managed MySQL and set `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`.
+- Fallback: SQLite (`FORCE_SQLITE=1`), but this is not ideal for durable production data.
+
+6. Verify health endpoint:
+- `GET /api/health`

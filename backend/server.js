@@ -12,9 +12,28 @@ const adminRoutes = require('./routes/admin');
 const remindersRoutes = require('./routes/reminders');
 const lessonCatalog = require('./lessonCatalog');
 
+function buildCorsOptions() {
+  const raw = String(process.env.ALLOWED_ORIGINS || '').trim();
+  if (!raw) return {};
+  const allowed = raw
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (!allowed.length) return {};
+
+  return {
+    origin(origin, callback) {
+      // Allow non-browser and same-origin requests without an Origin header.
+      if (!origin) return callback(null, true);
+      if (allowed.includes(origin)) return callback(null, true);
+      return callback(new Error('Not allowed by CORS'));
+    }
+  };
+}
+
 function createApp() {
   const app = express();
-  app.use(cors());
+  app.use(cors(buildCorsOptions()));
   app.use(express.json());
 
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
