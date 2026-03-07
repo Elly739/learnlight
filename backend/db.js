@@ -6,15 +6,33 @@ require('dotenv').config();
 let pool = null;
 let sqliteDb = null;
 const useSqlite = process.env.FORCE_SQLITE === '1' || String(process.env.USE_SQLITE || '').toLowerCase() === 'true';
+const allowSqliteFallback =
+  useSqlite ||
+  process.env.ALLOW_SQLITE_FALLBACK === '1' ||
+  String(process.env.NODE_ENV || '').toLowerCase() !== 'production';
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const str = String(value ?? '').trim();
+    if (str) return str;
+  }
+  return '';
+}
 
 function initMysqlPool() {
   if (pool) return pool;
+  const host = firstNonEmpty(process.env.DB_HOST, process.env.MYSQLHOST, process.env.MYSQL_HOST) || '127.0.0.1';
+  const portRaw = firstNonEmpty(process.env.DB_PORT, process.env.MYSQLPORT, process.env.MYSQL_PORT);
+  const user = firstNonEmpty(process.env.DB_USER, process.env.MYSQLUSER, process.env.MYSQL_USER) || 'root';
+  const password = firstNonEmpty(process.env.DB_PASSWORD, process.env.MYSQLPASSWORD, process.env.MYSQL_PASSWORD);
+  const database = firstNonEmpty(process.env.DB_NAME, process.env.MYSQLDATABASE, process.env.MYSQL_DATABASE) || 'learnlight';
+
   pool = mysql.createPool({
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'learnlight',
+    host,
+    port: portRaw ? Number(portRaw) : 3306,
+    user,
+    password,
+    database,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
@@ -88,7 +106,10 @@ async function query(sql, params) {
   } catch (err) {
     // if MySQL is unreachable, try SQLite fallback
     const code = err && err.code ? err.code : null;
-    if (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || String(err).toLowerCase().includes('connect')) {
+    if (
+      allowSqliteFallback &&
+      (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || String(err).toLowerCase().includes('connect'))
+    ) {
       try {
         initSqlite();
         if (q.toUpperCase().startsWith('SELECT')) {
