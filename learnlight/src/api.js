@@ -1,4 +1,15 @@
-﻿const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+function resolveApiUrl() {
+  const envUrl = String(import.meta.env.VITE_API_URL || '').trim();
+  if (envUrl) return envUrl.replace(/\/+$/, '');
+
+  if (typeof window !== 'undefined' && /vercel\.app$/i.test(window.location.hostname)) {
+    return 'https://learnlight.onrender.com';
+  }
+
+  return 'http://localhost:4000';
+}
+
+const API_URL = resolveApiUrl();
 
 async function request(path, opts = {}) {
   const url = `${API_URL}${path}`;
