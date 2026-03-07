@@ -19,13 +19,40 @@ function firstNonEmpty(...values) {
   return '';
 }
 
+function parseMysqlUrl(urlValue) {
+  const raw = String(urlValue || '').trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (!/^mysql:?$/i.test(parsed.protocol)) return null;
+    return {
+      host: parsed.hostname || '',
+      port: parsed.port ? Number(parsed.port) : 3306,
+      user: decodeURIComponent(parsed.username || ''),
+      password: decodeURIComponent(parsed.password || ''),
+      database: String(parsed.pathname || '').replace(/^\//, '') || ''
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 function initMysqlPool() {
   if (pool) return pool;
-  const host = firstNonEmpty(process.env.DB_HOST, process.env.MYSQLHOST, process.env.MYSQL_HOST) || '127.0.0.1';
-  const portRaw = firstNonEmpty(process.env.DB_PORT, process.env.MYSQLPORT, process.env.MYSQL_PORT);
-  const user = firstNonEmpty(process.env.DB_USER, process.env.MYSQLUSER, process.env.MYSQL_USER) || 'root';
-  const password = firstNonEmpty(process.env.DB_PASSWORD, process.env.MYSQLPASSWORD, process.env.MYSQL_PASSWORD);
-  const database = firstNonEmpty(process.env.DB_NAME, process.env.MYSQLDATABASE, process.env.MYSQL_DATABASE) || 'learnlight';
+  const urlConfig = parseMysqlUrl(
+    firstNonEmpty(
+      process.env.DATABASE_URL,
+      process.env.MYSQL_PUBLIC_URL,
+      process.env.MYSQL_URL,
+      process.env.MYSQLURL
+    )
+  );
+
+  const host = firstNonEmpty(process.env.DB_HOST, process.env.MYSQLHOST, process.env.MYSQL_HOST, urlConfig?.host) || '127.0.0.1';
+  const portRaw = firstNonEmpty(process.env.DB_PORT, process.env.MYSQLPORT, process.env.MYSQL_PORT, urlConfig?.port);
+  const user = firstNonEmpty(process.env.DB_USER, process.env.MYSQLUSER, process.env.MYSQL_USER, urlConfig?.user) || 'root';
+  const password = firstNonEmpty(process.env.DB_PASSWORD, process.env.MYSQLPASSWORD, process.env.MYSQL_PASSWORD, urlConfig?.password);
+  const database = firstNonEmpty(process.env.DB_NAME, process.env.MYSQLDATABASE, process.env.MYSQL_DATABASE, urlConfig?.database) || 'learnlight';
 
   pool = mysql.createPool({
     host,
