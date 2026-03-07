@@ -65,25 +65,29 @@ async function ensureContentTables() {
 }
 
 async function getPublicLessons() {
-  await ensureContentTables();
-  const rows = await query(
-    'SELECT id, title, slug, description, lesson_order, estimated_minutes FROM managed_lessons WHERE is_published = 1 ORDER BY lesson_order ASC, id ASC'
-  );
-  if (rows.length) {
-    const fallbackBySlug = new Map(
-      lessonCatalog.map((l) => [String(l.slug || ''), Number(l.estimatedMinutes) || 90])
+  try {
+    await ensureContentTables();
+    const rows = await query(
+      'SELECT id, title, slug, description, lesson_order, estimated_minutes FROM managed_lessons WHERE is_published = 1 ORDER BY lesson_order ASC, id ASC'
     );
-    return rows.map((r) => ({
-      id: Number(r.id),
-      title: r.title,
-      slug: r.slug,
-      description: r.description || '',
-      order: Number(r.lesson_order) || 0,
-      estimatedMinutes:
-        Number(r.estimated_minutes) ||
-        fallbackBySlug.get(String(r.slug || '')) ||
-        90
-    }));
+    if (rows.length) {
+      const fallbackBySlug = new Map(
+        lessonCatalog.map((l) => [String(l.slug || ''), Number(l.estimatedMinutes) || 90])
+      );
+      return rows.map((r) => ({
+        id: Number(r.id),
+        title: r.title,
+        slug: r.slug,
+        description: r.description || '',
+        order: Number(r.lesson_order) || 0,
+        estimatedMinutes:
+          Number(r.estimated_minutes) ||
+          fallbackBySlug.get(String(r.slug || '')) ||
+          90
+      }));
+    }
+  } catch (err) {
+    console.warn('Falling back to static lesson catalog:', err.message || err);
   }
   return lessonCatalog;
 }
@@ -99,17 +103,22 @@ async function getLessonBySlug(slug) {
 }
 
 async function getSubjectsForLesson(lessonId) {
-  await ensureContentTables();
-  const rows = await query(
-    'SELECT id, subject_key, name, description, content_text, subject_order FROM managed_subjects WHERE lesson_id = ? ORDER BY subject_order ASC, id ASC',
-    [lessonId]
-  );
-  return (rows || []).map((r) => ({
-    id: r.subject_key || `subject-${r.id}`,
-    name: r.name,
-    description: r.description || '',
-    content: r.content_text || ''
-  }));
+  try {
+    await ensureContentTables();
+    const rows = await query(
+      'SELECT id, subject_key, name, description, content_text, subject_order FROM managed_subjects WHERE lesson_id = ? ORDER BY subject_order ASC, id ASC',
+      [lessonId]
+    );
+    return (rows || []).map((r) => ({
+      id: r.subject_key || `subject-${r.id}`,
+      name: r.name,
+      description: r.description || '',
+      content: r.content_text || ''
+    }));
+  } catch (err) {
+    console.warn('Failed to load managed subjects, returning empty list:', err.message || err);
+    return [];
+  }
 }
 
 async function getManagedQuizForLesson(lessonId) {
