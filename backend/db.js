@@ -26,7 +26,7 @@ function initSqlite() {
   if (sqliteDb) return sqliteDb;
   try {
     const sqlite3 = require('sqlite3').verbose();
-    const dbPath = path.join(__dirname, 'data.sqlite');
+    const dbPath = path.resolve(__dirname, process.env.SQLITE_PATH || 'data.sqlite');
     // ensure file exists
     if (!fs.existsSync(dbPath)) {
       fs.writeFileSync(dbPath, '');
@@ -59,6 +59,8 @@ function sqliteRun(sql, params) {
 
 async function query(sql, params) {
   const q = String(sql).trim();
+  const isDuplicateColumnError = (err) =>
+    String(err?.message || '').toLowerCase().includes('duplicate column name');
   // If requested, use SQLite directly (useful for local dev without MySQL)
   if (useSqlite) {
     try {
@@ -69,6 +71,9 @@ async function query(sql, params) {
         return await sqliteRun(sql, params);
       }
     } catch (e) {
+      if (isDuplicateColumnError(e)) {
+        return { lastID: null, changes: 0 };
+      }
       console.warn('SQLite query failed:', e.message || e);
       if (q.toUpperCase().startsWith('SELECT')) return [];
       throw e;
@@ -92,6 +97,9 @@ async function query(sql, params) {
           return await sqliteRun(sql, params);
         }
       } catch (e) {
+        if (isDuplicateColumnError(e)) {
+          return { lastID: null, changes: 0 };
+        }
         console.warn('SQLite fallback failed:', e.message);
         if (q.toUpperCase().startsWith('SELECT')) return [];
         throw e;

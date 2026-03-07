@@ -1,0 +1,355 @@
+const express = require('express');
+const { query } = require('../db');
+const { requireAuth } = require('../middleware/auth');
+
+const router = express.Router();
+
+async function ensureLearnerTables() {
+  try {
+    await query(
+      'CREATE TABLE IF NOT EXISTS learner_downloads (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, lesson_id INTEGER NOT NULL, filename TEXT NOT NULL, url TEXT, description TEXT, subject_name TEXT, download_type TEXT, status TEXT DEFAULT "downloaded", file_size_bytes INTEGER DEFAULT 0, last_updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
+    );
+    await query(
+      'CREATE TABLE IF NOT EXISTS lesson_bookmarks (user_id INTEGER NOT NULL, lesson_id INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, lesson_id))'
+    );
+    await query(
+      'CREATE TABLE IF NOT EXISTS lesson_notes (user_id INTEGER NOT NULL, lesson_id INTEGER NOT NULL, note_text TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, lesson_id))'
+    );
+    await query(
+      'CREATE TABLE IF NOT EXISTS lesson_enrollments (user_id INTEGER NOT NULL, lesson_id INTEGER NOT NULL, enrolled_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, lesson_id))'
+    );
+    return;
+  } catch (err) {
+    // fallback to MySQL syntax
+  }
+
+  await query(
+    'CREATE TABLE IF NOT EXISTS learner_downloads (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, user_id INT UNSIGNED NOT NULL, lesson_id INT UNSIGNED NOT NULL, filename VARCHAR(255) NOT NULL, url VARCHAR(1000) NULL, description TEXT NULL, subject_name VARCHAR(255) NULL, download_type VARCHAR(32) NULL, status VARCHAR(32) NOT NULL DEFAULT "downloaded", file_size_bytes BIGINT NOT NULL DEFAULT 0, last_updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
+  );
+  await query(
+    'CREATE TABLE IF NOT EXISTS lesson_bookmarks (user_id INT UNSIGNED NOT NULL, lesson_id INT UNSIGNED NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, lesson_id))'
+  );
+  await query(
+    'CREATE TABLE IF NOT EXISTS lesson_notes (user_id INT UNSIGNED NOT NULL, lesson_id INT UNSIGNED NOT NULL, note_text LONGTEXT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (user_id, lesson_id))'
+  );
+  await query(
+    'CREATE TABLE IF NOT EXISTS lesson_enrollments (user_id INT UNSIGNED NOT NULL, lesson_id INT UNSIGNED NOT NULL, enrolled_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, lesson_id))'
+  );
+}
+
+async function ensureUserProfileColumns() {
+  try {
+    await query('ALTER TABLE users ADD COLUMN cohort TEXT');
+  } catch (e) {}
+  try {
+    await query('ALTER TABLE users ADD COLUMN cohort VARCHAR(120) NULL');
+  } catch (e) {}
+}
+
+router.use(requireAuth);
+
+router.get('/profile', async (req, res, next) => {
+  try {
+    await ensureUserProfileColumns();
+    const userId = Number(req.user.id);
+    const rows = await query('SELECT id, name, email, role, cohort FROM users WHERE id = ?', [userId]);
+    if (!rows.length) return res.status(404).json({ error: 'User not found' });
+    const user = rows[0];
+    res.json({
+      id: Number(user.id),
+      name: user.name || null,
+      email: user.email || null,
+      role: user.role || 'student',
+      cohort: user.cohort || null
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/profile', async (req, res, next) => {
+  try {
+    await ensureUserProfileColumns();
+    const userId = Number(req.user.id);
+    const name = String(req.body?.name || '').trim();
+    const cohort = String(req.body?.cohort || '').trim();
+    const safeName = name ? name.slice(0, 120) : null;
+    const safeCohort = cohort ? cohort.slice(0, 120) : null;
+
+    await query('UPDATE users SET name = ?, cohort = ? WHERE id = ?', [safeName, safeCohort, userId]);
+    const rows = await query('SELECT id, name, email, role, cohort FROM users WHERE id = ?', [userId]);
+    const user = rows[0] || {};
+    res.json({
+      ok: true,
+      user: {
+        id: Number(user.id || userId),
+        name: user.name || null,
+        email: user.email || null,
+        role: user.role || 'student',
+        cohort: user.cohort || null
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/downloads', async (req, res, next) => {
+  try {
+    await ensureLearnerTables();
+    const userId = Number(req.user.id);
+    const rows = await query(
+      'SELECT id, lesson_id, filename, url, description, subject_name, download_type, status, file_size_bytes, last_updated_at, created_at FROM learner_downloads WHERE user_id = ? ORDER BY created_at DESC, id DESC',
+      [userId]
+    );
+    res.json(rows || []);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/downloads', async (req, res, next) => {
+  try {
+    await ensureLearnerTables();
+    const userId = Number(req.user.id);
+    const {
+      lessonId,
+      filename,
+      url,
+      description,
+      subjectName,
+      downloadType,
+      status,
+      fileSizeBytes
+    } = req.body || {};
+
+    if (!lessonId || !filename) {
+      return res.status(400).json({ error: 'Missing fields' });
+    }
+
+    const safeLessonId = Number(lessonId);
+    const safeFilename = String(filename);
+    const safeSubjectName = subjectName || null;
+    const safeDownloadType = downloadType || null;
+    const safeStatus = status || 'downloaded';
+    const safeSize = Number(fileSizeBytes) || 0;
+
+    const existing = await query(
+      'SELECT id FROM learner_downloads WHERE user_id = ? AND lesson_id = ? AND filename = ? AND ((subject_name = ?) OR (subject_name IS NULL AND ? IS NULL)) AND ((download_type = ?) OR (download_type IS NULL AND ? IS NULL)) ORDER BY id DESC LIMIT 1',
+      [
+        userId,
+        safeLessonId,
+        safeFilename,
+        safeSubjectName,
+        safeSubjectName,
+        safeDownloadType,
+        safeDownloadType
+      ]
+    );
+    if (existing.length) {
+      const downloadId = Number(existing[0].id);
+      await query(
+        'UPDATE learner_downloads SET url = ?, description = ?, status = ?, file_size_bytes = ?, last_updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+        [url || null, description || null, safeStatus, safeSize, downloadId, userId]
+      );
+      return res.json({ ok: true, id: downloadId, updated: true });
+    }
+
+    const inserted = await query(
+      'INSERT INTO learner_downloads (user_id, lesson_id, filename, url, description, subject_name, download_type, status, file_size_bytes, last_updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
+      [
+        userId,
+        safeLessonId,
+        safeFilename,
+        url || null,
+        description || null,
+        safeSubjectName,
+        safeDownloadType,
+        safeStatus,
+        safeSize
+      ]
+    );
+
+    res.json({ ok: true, id: inserted.insertId || inserted.lastID || null, created: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/downloads/:downloadId', async (req, res, next) => {
+  try {
+    await ensureLearnerTables();
+    const userId = Number(req.user.id);
+    const downloadId = Number(req.params.downloadId);
+    const status = req.body?.status ? String(req.body.status) : null;
+    const fileSizeBytes = req.body?.fileSizeBytes == null ? null : Number(req.body.fileSizeBytes);
+    const allowedStatus = new Set(['downloaded', 'downloading', 'paused', 'failed']);
+
+    const currentRows = await query(
+      'SELECT id, file_size_bytes FROM learner_downloads WHERE id = ? AND user_id = ?',
+      [downloadId, userId]
+    );
+    if (!currentRows.length) return res.status(404).json({ error: 'Download not found' });
+
+    const nextStatus = status && allowedStatus.has(status) ? status : null;
+    const nextSize =
+      fileSizeBytes != null && Number.isFinite(fileSizeBytes)
+        ? Math.max(0, Math.floor(fileSizeBytes))
+        : Number(currentRows[0].file_size_bytes) || 0;
+
+    await query(
+      'UPDATE learner_downloads SET status = COALESCE(?, status), file_size_bytes = ?, last_updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+      [nextStatus, nextSize, downloadId, userId]
+    );
+
+    const rows = await query(
+      'SELECT id, lesson_id, filename, url, description, subject_name, download_type, status, file_size_bytes, last_updated_at, created_at FROM learner_downloads WHERE id = ? AND user_id = ?',
+      [downloadId, userId]
+    );
+    res.json({ ok: true, download: rows[0] || null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/bookmarks', async (req, res, next) => {
+  try {
+    await ensureLearnerTables();
+    const userId = Number(req.user.id);
+    const rows = await query(
+      'SELECT lesson_id, created_at FROM lesson_bookmarks WHERE user_id = ? ORDER BY created_at DESC',
+      [userId]
+    );
+    res.json(rows || []);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/bookmarks', async (req, res, next) => {
+  try {
+    await ensureLearnerTables();
+    const userId = Number(req.user.id);
+    const { lessonId, bookmarked } = req.body || {};
+    if (!lessonId) return res.status(400).json({ error: 'Missing lessonId' });
+    const lid = Number(lessonId);
+
+    if (bookmarked) {
+      const exists = await query(
+        'SELECT lesson_id FROM lesson_bookmarks WHERE user_id = ? AND lesson_id = ?',
+        [userId, lid]
+      );
+      if (!exists.length) {
+        await query(
+          'INSERT INTO lesson_bookmarks (user_id, lesson_id, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+          [userId, lid]
+        );
+      }
+    } else {
+      await query(
+        'DELETE FROM lesson_bookmarks WHERE user_id = ? AND lesson_id = ?',
+        [userId, lid]
+      );
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/notes/:lessonId', async (req, res, next) => {
+  try {
+    await ensureLearnerTables();
+    const userId = Number(req.user.id);
+    const lessonId = Number(req.params.lessonId);
+    const rows = await query(
+      'SELECT note_text, updated_at FROM lesson_notes WHERE user_id = ? AND lesson_id = ?',
+      [userId, lessonId]
+    );
+    if (!rows.length) return res.json({ lessonId, noteText: '' });
+    res.json({
+      lessonId,
+      noteText: rows[0].note_text || '',
+      updatedAt: rows[0].updated_at || null
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/notes/:lessonId', async (req, res, next) => {
+  try {
+    await ensureLearnerTables();
+    const userId = Number(req.user.id);
+    const lessonId = Number(req.params.lessonId);
+    const noteText = String(req.body?.noteText || '');
+
+    const rows = await query(
+      'SELECT lesson_id FROM lesson_notes WHERE user_id = ? AND lesson_id = ?',
+      [userId, lessonId]
+    );
+
+    if (rows.length) {
+      await query(
+        'UPDATE lesson_notes SET note_text = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND lesson_id = ?',
+        [noteText, userId, lessonId]
+      );
+    } else {
+      await query(
+        'INSERT INTO lesson_notes (user_id, lesson_id, note_text, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+        [userId, lessonId, noteText]
+      );
+    }
+
+    res.json({ ok: true, lessonId, noteText });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/enrollments', async (req, res, next) => {
+  try {
+    await ensureLearnerTables();
+    const userId = Number(req.user.id);
+    const rows = await query(
+      'SELECT lesson_id, enrolled_at FROM lesson_enrollments WHERE user_id = ? ORDER BY enrolled_at DESC',
+      [userId]
+    );
+    res.json(rows || []);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/enrollments', async (req, res, next) => {
+  try {
+    await ensureLearnerTables();
+    const userId = Number(req.user.id);
+    const lessonId = Number(req.body?.lessonId);
+    const enrolled = req.body?.enrolled == null ? true : Boolean(req.body.enrolled);
+    if (!lessonId) return res.status(400).json({ error: 'Missing lessonId' });
+
+    if (enrolled) {
+      const rows = await query(
+        'SELECT lesson_id FROM lesson_enrollments WHERE user_id = ? AND lesson_id = ?',
+        [userId, lessonId]
+      );
+      if (!rows.length) {
+        await query(
+          'INSERT INTO lesson_enrollments (user_id, lesson_id, enrolled_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+          [userId, lessonId]
+        );
+      }
+    } else {
+      await query(
+        'DELETE FROM lesson_enrollments WHERE user_id = ? AND lesson_id = ?',
+        [userId, lessonId]
+      );
+    }
+    res.json({ ok: true, lessonId, enrolled });
+  } catch (err) {
+    next(err);
+  }
+});
+
+module.exports = router;

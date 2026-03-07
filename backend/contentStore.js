@@ -1,0 +1,157 @@
+const { query } = require('./db');
+const lessonCatalog = require('./lessonCatalog');
+
+async function ensureContentTables() {
+  try {
+    await query(
+      'CREATE TABLE IF NOT EXISTS managed_lessons (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, description TEXT, lesson_order INTEGER DEFAULT 0, is_published INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
+    );
+    try {
+      await query('ALTER TABLE managed_lessons ADD COLUMN workflow_status TEXT DEFAULT "draft"');
+    } catch (e) {}
+    try {
+      await query('ALTER TABLE managed_lessons ADD COLUMN estimated_minutes INTEGER DEFAULT 90');
+    } catch (e) {}
+    await query(
+      'CREATE TABLE IF NOT EXISTS managed_subjects (id INTEGER PRIMARY KEY AUTOINCREMENT, lesson_id INTEGER NOT NULL, subject_key TEXT NOT NULL, name TEXT NOT NULL, description TEXT, subject_order INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
+    );
+    try {
+      await query('ALTER TABLE managed_subjects ADD COLUMN content_text TEXT');
+    } catch (e) {}
+    await query(
+      'CREATE TABLE IF NOT EXISTS managed_quizzes (id INTEGER PRIMARY KEY AUTOINCREMENT, lesson_id INTEGER NOT NULL, title TEXT, is_published INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
+    );
+    await query(
+      'CREATE TABLE IF NOT EXISTS managed_questions (id INTEGER PRIMARY KEY AUTOINCREMENT, quiz_id INTEGER NOT NULL, question_text TEXT NOT NULL, question_order INTEGER DEFAULT 0)'
+    );
+    try {
+      await query('ALTER TABLE managed_questions ADD COLUMN explanation TEXT');
+    } catch (e) {}
+    await query(
+      'CREATE TABLE IF NOT EXISTS managed_options (id INTEGER PRIMARY KEY AUTOINCREMENT, question_id INTEGER NOT NULL, option_text TEXT NOT NULL, is_correct INTEGER DEFAULT 0, option_order INTEGER DEFAULT 0)'
+    );
+    return;
+  } catch (err) {
+    // MySQL fallback
+  }
+
+  await query(
+    'CREATE TABLE IF NOT EXISTS managed_lessons (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, title VARCHAR(255) NOT NULL, slug VARCHAR(255) NOT NULL UNIQUE, description TEXT NULL, lesson_order INT DEFAULT 0, is_published TINYINT(1) DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)'
+  );
+  try {
+    await query('ALTER TABLE managed_lessons ADD COLUMN workflow_status VARCHAR(32) NOT NULL DEFAULT "draft"');
+  } catch (e) {}
+  try {
+    await query('ALTER TABLE managed_lessons ADD COLUMN estimated_minutes INT NOT NULL DEFAULT 90');
+  } catch (e) {}
+  await query(
+    'CREATE TABLE IF NOT EXISTS managed_subjects (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, lesson_id INT UNSIGNED NOT NULL, subject_key VARCHAR(255) NOT NULL, name VARCHAR(255) NOT NULL, description TEXT NULL, subject_order INT DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)'
+  );
+  try {
+    await query('ALTER TABLE managed_subjects ADD COLUMN content_text LONGTEXT NULL');
+  } catch (e) {}
+  await query(
+    'CREATE TABLE IF NOT EXISTS managed_quizzes (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, lesson_id INT UNSIGNED NOT NULL, title VARCHAR(255) NULL, is_published TINYINT(1) DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
+  );
+  await query(
+    'CREATE TABLE IF NOT EXISTS managed_questions (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, quiz_id INT UNSIGNED NOT NULL, question_text TEXT NOT NULL, question_order INT DEFAULT 0)'
+  );
+  try {
+    await query('ALTER TABLE managed_questions ADD COLUMN explanation TEXT NULL');
+  } catch (e) {}
+  await query(
+    'CREATE TABLE IF NOT EXISTS managed_options (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, question_id INT UNSIGNED NOT NULL, option_text TEXT NOT NULL, is_correct TINYINT(1) DEFAULT 0, option_order INT DEFAULT 0)'
+  );
+}
+
+async function getPublicLessons() {
+  await ensureContentTables();
+  const rows = await query(
+    'SELECT id, title, slug, description, lesson_order, estimated_minutes FROM managed_lessons WHERE is_published = 1 ORDER BY lesson_order ASC, id ASC'
+  );
+  if (rows.length) {
+    const fallbackBySlug = new Map(
+      lessonCatalog.map((l) => [String(l.slug || ''), Number(l.estimatedMinutes) || 90])
+    );
+    return rows.map((r) => ({
+      id: Number(r.id),
+      title: r.title,
+      slug: r.slug,
+      description: r.description || '',
+      order: Number(r.lesson_order) || 0,
+      estimatedMinutes:
+        Number(r.estimated_minutes) ||
+        fallbackBySlug.get(String(r.slug || '')) ||
+        90
+    }));
+  }
+  return lessonCatalog;
+}
+
+async function getLessonById(id) {
+  const all = await getPublicLessons();
+  return all.find((l) => Number(l.id) === Number(id)) || null;
+}
+
+async function getLessonBySlug(slug) {
+  const all = await getPublicLessons();
+  return all.find((l) => l.slug === slug) || null;
+}
+
+async function getSubjectsForLesson(lessonId) {
+  await ensureContentTables();
+  const rows = await query(
+    'SELECT id, subject_key, name, description, content_text, subject_order FROM managed_subjects WHERE lesson_id = ? ORDER BY subject_order ASC, id ASC',
+    [lessonId]
+  );
+  return (rows || []).map((r) => ({
+    id: r.subject_key || `subject-${r.id}`,
+    name: r.name,
+    description: r.description || '',
+    content: r.content_text || ''
+  }));
+}
+
+async function getManagedQuizForLesson(lessonId) {
+  await ensureContentTables();
+  const quizzes = await query(
+    'SELECT id, title FROM managed_quizzes WHERE lesson_id = ? AND is_published = 1 ORDER BY id DESC',
+    [lessonId]
+  );
+  if (!quizzes.length) return null;
+  const quiz = quizzes[0];
+  const questions = await query(
+    'SELECT id, question_text, explanation FROM managed_questions WHERE quiz_id = ? ORDER BY question_order ASC, id ASC',
+    [quiz.id]
+  );
+  for (const q of questions) {
+    const options = await query(
+      'SELECT id, option_text, is_correct FROM managed_options WHERE question_id = ? ORDER BY option_order ASC, id ASC',
+      [q.id]
+    );
+    q.options = options || [];
+  }
+  return {
+    id: Number(quiz.id),
+    title: quiz.title || 'Quiz',
+    questions: questions.map((q) => ({
+      id: Number(q.id),
+      question_text: q.question_text,
+      explanation: q.explanation || '',
+      options: (q.options || []).map((o) => ({
+        id: Number(o.id),
+        option_text: o.option_text,
+        is_correct: Number(o.is_correct) === 1 ? 1 : 0
+      }))
+    }))
+  };
+}
+
+module.exports = {
+  ensureContentTables,
+  getPublicLessons,
+  getLessonById,
+  getLessonBySlug,
+  getSubjectsForLesson,
+  getManagedQuizForLesson
+};

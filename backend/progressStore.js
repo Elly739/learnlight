@@ -1,0 +1,134 @@
+const { query } = require('./db');
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function yesterdayKey() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+async function ensureProgressTables() {
+  try {
+    await query(
+      'CREATE TABLE IF NOT EXISTS lesson_completions (user_id INTEGER NOT NULL, lesson_id INTEGER NOT NULL, completed_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, lesson_id))'
+    );
+    await query(
+      'CREATE TABLE IF NOT EXISTS quiz_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, lesson_id INTEGER NOT NULL, quiz_id INTEGER, score INTEGER NOT NULL, total INTEGER NOT NULL, answers_json TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
+    );
+    try {
+      await query('ALTER TABLE quiz_attempts ADD COLUMN feedback_json TEXT');
+    } catch (e) {}
+    await query(
+      'CREATE TABLE IF NOT EXISTS streaks (user_id INTEGER PRIMARY KEY, current_streak INTEGER NOT NULL DEFAULT 0, longest_streak INTEGER NOT NULL DEFAULT 0, last_active_date TEXT)'
+    );
+    await query(
+      'CREATE TABLE IF NOT EXISTS certificates (cert_id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, lesson_id INTEGER NOT NULL, issued_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
+    );
+    return;
+  } catch (err) {
+    // fallback for MySQL syntax
+  }
+
+  await query(
+    'CREATE TABLE IF NOT EXISTS lesson_completions (user_id INT UNSIGNED NOT NULL, lesson_id INT UNSIGNED NOT NULL, completed_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, lesson_id))'
+  );
+  await query(
+    'CREATE TABLE IF NOT EXISTS quiz_attempts (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, user_id INT UNSIGNED NOT NULL, lesson_id INT UNSIGNED NOT NULL, quiz_id INT UNSIGNED NULL, score INT NOT NULL, total INT NOT NULL, answers_json LONGTEXT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
+  );
+  try {
+    await query('ALTER TABLE quiz_attempts ADD COLUMN feedback_json LONGTEXT NULL');
+  } catch (e) {}
+  await query(
+    'CREATE TABLE IF NOT EXISTS streaks (user_id INT UNSIGNED NOT NULL PRIMARY KEY, current_streak INT NOT NULL DEFAULT 0, longest_streak INT NOT NULL DEFAULT 0, last_active_date VARCHAR(10) NULL)'
+  );
+  await query(
+    'CREATE TABLE IF NOT EXISTS certificates (cert_id VARCHAR(64) NOT NULL PRIMARY KEY, user_id INT UNSIGNED NOT NULL, lesson_id INT UNSIGNED NOT NULL, issued_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
+  );
+}
+
+async function touchStreak(userId) {
+  const today = todayKey();
+  const yesterday = yesterdayKey();
+
+  const rows = await query(
+    'SELECT user_id, current_streak, longest_streak, last_active_date FROM streaks WHERE user_id = ?',
+    [userId]
+  );
+
+  if (!rows.length) {
+    await query(
+      'INSERT INTO streaks (user_id, current_streak, longest_streak, last_active_date) VALUES (?, ?, ?, ?)',
+      [userId, 1, 1, today]
+    );
+    return { currentStreak: 1, longestStreak: 1, lastActiveDate: today };
+  }
+
+  const row = rows[0];
+  let current = Number(row.current_streak) || 0;
+  let longest = Number(row.longest_streak) || 0;
+  const lastActive = row.last_active_date || '';
+
+  if (lastActive === today) {
+    return { currentStreak: current, longestStreak: longest, lastActiveDate: today };
+  }
+
+  if (lastActive === yesterday) {
+    current += 1;
+  } else {
+    current = 1;
+  }
+  if (current > longest) longest = current;
+
+  await query(
+    'UPDATE streaks SET current_streak = ?, longest_streak = ?, last_active_date = ? WHERE user_id = ?',
+    [current, longest, today, userId]
+  );
+
+  return { currentStreak: current, longestStreak: longest, lastActiveDate: today };
+}
+
+function generateCertId(userId, lessonId) {
+  const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `LL-${userId}-${lessonId}-${rand}`;
+}
+
+async function ensureCertificate(userId, lessonId) {
+  const existing = await query(
+    'SELECT cert_id, user_id, lesson_id, issued_at FROM certificates WHERE user_id = ? AND lesson_id = ?',
+    [userId, lessonId]
+  );
+  if (existing.length) return existing[0];
+
+  const certId = generateCertId(userId, lessonId);
+  await query(
+    'INSERT INTO certificates (cert_id, user_id, lesson_id, issued_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+    [certId, userId, lessonId]
+  );
+  return { cert_id: certId, user_id: userId, lesson_id: lessonId };
+}
+
+async function markLessonComplete(userId, lessonId) {
+  const existing = await query(
+    'SELECT user_id, lesson_id FROM lesson_completions WHERE user_id = ? AND lesson_id = ?',
+    [userId, lessonId]
+  );
+  if (!existing.length) {
+    await query(
+      'INSERT INTO lesson_completions (user_id, lesson_id, completed_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+      [userId, lessonId]
+    );
+  }
+  const cert = await ensureCertificate(userId, lessonId);
+  const streak = await touchStreak(userId);
+  return { cert, streak };
+}
+
+module.exports = {
+  ensureProgressTables,
+  touchStreak,
+  ensureCertificate,
+  markLessonComplete
+};

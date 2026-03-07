@@ -1,0 +1,12 @@
+{
+  "name": "learnlight-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "test:backend": "npm --prefix backend test",
+    "test:frontend": "npm --prefix learnlight run test:all",
+    "lint:frontend": "npm --prefix learnlight run lint",
+    "build:frontend": "npm --prefix learnlight run build",
+    "verify": "npm run test:backend && npm run test:frontend && npm run lint:frontend && npm run build:frontend"
+  }
+}
