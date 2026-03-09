@@ -13,9 +13,8 @@ services:
         generateValue: true
       - key: ADMIN_EMAILS
         value: iamellyokello@gmail.com
-      # Set your frontend URL after deploying Vercel:
-      # - key: ALLOWED_ORIGINS
-      #   value: https://your-vercel-app.vercel.app
+      - key: ALLOWED_ORIGINS
+        value: https://learnlight-qyis.vercel.app
       #
       # Configure one database strategy:
       # 1) Managed MySQL

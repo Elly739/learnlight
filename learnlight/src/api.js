@@ -2,8 +2,12 @@ function resolveApiUrl() {
   const envUrl = String(import.meta.env.VITE_API_URL || '').trim();
   if (envUrl) return envUrl.replace(/\/+$/, '');
 
-  if (typeof window !== 'undefined' && /vercel\.app$/i.test(window.location.hostname)) {
-    return 'https://learnlight.onrender.com';
+  // Support both vercel.app domains and custom domains
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname.toLowerCase();
+    if (/vercel\.app$/.test(hostname) || hostname.includes('vercel.app')) {
+      return 'https://learnlight.onrender.com';
+    }
   }
 
   return 'http://localhost:4000';
