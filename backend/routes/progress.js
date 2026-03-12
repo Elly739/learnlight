@@ -3,6 +3,7 @@ const { query, isPostgres } = require('../db');
 const lessonCatalog = require('../lessonCatalog');
 const { requireAuth } = require('../middleware/auth');
 const { ensureProgressTables, markLessonComplete } = require('../progressStore');
+const { validateBody } = require('../middleware/validate');
 
 const router = express.Router();
 
@@ -137,7 +138,17 @@ router.get('/me', async (req, res, next) => {
   }
 });
 
-router.post('/quiz-attempt', async (req, res, next) => {
+router.post(
+  '/quiz-attempt',
+  validateBody([
+    { key: 'lessonId', type: 'number', required: true, min: 1 },
+    { key: 'score', type: 'number', required: true, min: 0 },
+    { key: 'total', type: 'number', required: true, min: 0 },
+    { key: 'quizId', type: 'number' },
+    { key: 'answers', isArray: true },
+    { key: 'review', isArray: true }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureProgressTables();
     const userId = Number(req.user.id);

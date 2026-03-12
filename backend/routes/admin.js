@@ -4,6 +4,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { ensureContentTables } = require('../contentStore');
 const { ensureProgressTables } = require('../progressStore');
 const lessonCatalog = require('../lessonCatalog');
+const { validateBody } = require('../middleware/validate');
 
 const router = express.Router();
 
@@ -236,7 +237,15 @@ router.get('/users', requirePermission('users.read'), async (req, res, next) => 
   }
 });
 
-router.put('/users/:userId', requirePermission('users.write'), async (req, res, next) => {
+router.put(
+  '/users/:userId',
+  requirePermission('users.write'),
+  validateBody([
+    { key: 'role', type: 'string', maxLen: 32 },
+    { key: 'cohort', type: 'string', maxLen: 120 },
+    { key: 'isActive', type: 'boolean' }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureAdminMetaTables();
     const userId = Number(req.params.userId);
@@ -290,7 +299,15 @@ router.get('/users/:userId/progress', requirePermission('users.progress.read'), 
   }
 });
 
-router.post('/enrollments', requirePermission('enrollments.write'), async (req, res, next) => {
+router.post(
+  '/enrollments',
+  requirePermission('enrollments.write'),
+  validateBody([
+    { key: 'userId', type: 'number', required: true, min: 1 },
+    { key: 'lessonId', type: 'number', required: true, min: 1 },
+    { key: 'enrolled', type: 'boolean' }
+  ]),
+  async (req, res, next) => {
   try {
     const userId = Number(req.body?.userId);
     const lessonId = Number(req.body?.lessonId);
@@ -434,10 +451,16 @@ router.get('/settings', requirePermission('settings.write'), async (req, res, ne
   }
 });
 
-router.put('/settings', requirePermission('settings.write'), async (req, res, next) => {
+router.put(
+  '/settings',
+  requirePermission('settings.write'),
+  async (req, res, next) => {
   try {
     await ensureAdminMetaTables();
-    const updates = req.body?.settings || {};
+    const updates = req.body?.settings;
+    if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+      return res.status(400).json({ error: 'Invalid settings' });
+    }
     const keys = Object.keys(updates);
     for (const key of keys) {
       const value = JSON.stringify(updates[key]);
@@ -503,7 +526,19 @@ router.get('/lessons', requirePermission('content.read'), async (req, res, next)
   }
 });
 
-router.post('/lessons', requirePermission('content.write'), async (req, res, next) => {
+router.post(
+  '/lessons',
+  requirePermission('content.write'),
+  validateBody([
+    { key: 'title', type: 'string', required: true, maxLen: 255 },
+    { key: 'slug', type: 'string', required: true, maxLen: 255 },
+    { key: 'description', type: 'string', maxLen: 2000 },
+    { key: 'lessonOrder', type: 'number', min: 0 },
+    { key: 'estimatedMinutes', type: 'number', min: 15, max: 1000 },
+    { key: 'isPublished', type: 'boolean' },
+    { key: 'workflowStatus', type: 'string', maxLen: 32 }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureContentTables();
     const { title, slug, description, lessonOrder, estimatedMinutes, isPublished, workflowStatus } = req.body || {};
@@ -528,7 +563,19 @@ router.post('/lessons', requirePermission('content.write'), async (req, res, nex
   }
 });
 
-router.put('/lessons/:lessonId', requirePermission('content.write'), async (req, res, next) => {
+router.put(
+  '/lessons/:lessonId',
+  requirePermission('content.write'),
+  validateBody([
+    { key: 'title', type: 'string', required: true, maxLen: 255 },
+    { key: 'slug', type: 'string', required: true, maxLen: 255 },
+    { key: 'description', type: 'string', maxLen: 2000 },
+    { key: 'lessonOrder', type: 'number', min: 0 },
+    { key: 'estimatedMinutes', type: 'number', min: 15, max: 1000 },
+    { key: 'isPublished', type: 'boolean' },
+    { key: 'workflowStatus', type: 'string', maxLen: 32 }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureContentTables();
     const lessonId = Number(req.params.lessonId);
@@ -630,7 +677,17 @@ router.get('/lessons/:lessonId/subjects', requirePermission('content.read'), asy
   }
 });
 
-router.post('/lessons/:lessonId/subjects', requirePermission('content.write'), async (req, res, next) => {
+router.post(
+  '/lessons/:lessonId/subjects',
+  requirePermission('content.write'),
+  validateBody([
+    { key: 'subjectKey', type: 'string', required: true, maxLen: 255 },
+    { key: 'name', type: 'string', required: true, maxLen: 255 },
+    { key: 'description', type: 'string', maxLen: 2000 },
+    { key: 'content', type: 'string', maxLen: 20000 },
+    { key: 'subjectOrder', type: 'number', min: 0 }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureContentTables();
     const lessonId = Number(req.params.lessonId);
@@ -657,7 +714,17 @@ router.delete('/subjects/:subjectId', requirePermission('content.write'), async 
   }
 });
 
-router.put('/subjects/:subjectId', requirePermission('content.write'), async (req, res, next) => {
+router.put(
+  '/subjects/:subjectId',
+  requirePermission('content.write'),
+  validateBody([
+    { key: 'subjectKey', type: 'string', required: true, maxLen: 255 },
+    { key: 'name', type: 'string', required: true, maxLen: 255 },
+    { key: 'description', type: 'string', maxLen: 2000 },
+    { key: 'content', type: 'string', maxLen: 20000 },
+    { key: 'subjectOrder', type: 'number', min: 0 }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureContentTables();
     const subjectId = Number(req.params.subjectId);
@@ -698,7 +765,14 @@ router.get('/lessons/:lessonId/quiz', requirePermission('content.read'), async (
   }
 });
 
-router.post('/lessons/:lessonId/quiz', requirePermission('content.write'), async (req, res, next) => {
+router.post(
+  '/lessons/:lessonId/quiz',
+  requirePermission('content.write'),
+  validateBody([
+    { key: 'title', type: 'string', maxLen: 255 },
+    { key: 'questions', isArray: true, required: true }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureContentTables();
     const lessonId = Number(req.params.lessonId);
@@ -752,7 +826,11 @@ router.post('/lessons/:lessonId/quiz', requirePermission('content.write'), async
   }
 });
 
-router.post('/import/lessons-csv', requirePermission('content.write'), async (req, res, next) => {
+router.post(
+  '/import/lessons-csv',
+  requirePermission('content.write'),
+  validateBody([{ key: 'csvText', type: 'string', required: true, maxLen: 1000000 }]),
+  async (req, res, next) => {
   try {
     await ensureContentTables();
     const csvText = req.body?.csvText;
@@ -806,7 +884,11 @@ router.post('/import/lessons-csv', requirePermission('content.write'), async (re
   }
 });
 
-router.post('/import/subjects-csv', requirePermission('content.write'), async (req, res, next) => {
+router.post(
+  '/import/subjects-csv',
+  requirePermission('content.write'),
+  validateBody([{ key: 'csvText', type: 'string', required: true, maxLen: 1000000 }]),
+  async (req, res, next) => {
   try {
     await ensureContentTables();
     const csvText = req.body?.csvText;

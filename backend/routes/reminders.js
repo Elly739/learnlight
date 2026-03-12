@@ -3,6 +3,7 @@ const { query, isPostgres } = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { ensureProgressTables } = require('../progressStore');
 const { getPublicLessons } = require('../contentStore');
+const { validateBody } = require('../middleware/validate');
 
 const router = express.Router();
 
@@ -61,7 +62,15 @@ router.get('/preferences', async (req, res, next) => {
   }
 });
 
-router.put('/preferences', async (req, res, next) => {
+router.put(
+  '/preferences',
+  validateBody([
+    { key: 'emailEnabled', type: 'boolean' },
+    { key: 'pushEnabled', type: 'boolean' },
+    { key: 'dailyTime', type: 'string', maxLen: 16 },
+    { key: 'timezone', type: 'string', maxLen: 64 }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureReminderTables();
     const userId = Number(req.user.id);

@@ -3,6 +3,7 @@ const { query } = require('../db');
 const { buildQuizForLesson } = require('../quizCatalog');
 const { getManagedQuizForLesson } = require('../contentStore');
 const jwt = require('jsonwebtoken');
+const { validateBody } = require('../middleware/validate');
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'secret-dev';
 
@@ -146,7 +147,14 @@ router.get('/lesson/:lessonId', async (req, res, next) => {
 });
 
 // Submit quiz answers: { quizId, answers: [{ questionId, optionId }] }
-router.post('/submit', async (req, res, next) => {
+router.post(
+  '/submit',
+  validateBody([
+    { key: 'quizId', type: 'number', required: true, min: 1 },
+    { key: 'answers', isArray: true, required: true },
+    { key: 'difficulty', type: 'string', maxLen: 20 }
+  ]),
+  async (req, res, next) => {
   try {
     const { quizId, answers, difficulty } = req.body;
     if (!quizId || !Array.isArray(answers)) return res.status(400).json({ error: 'Invalid payload' });

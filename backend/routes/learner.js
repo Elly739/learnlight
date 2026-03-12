@@ -1,6 +1,7 @@
 const express = require('express');
 const { query, isPostgres } = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { validateBody } = require('../middleware/validate');
 
 const router = express.Router();
 
@@ -86,7 +87,13 @@ router.get('/profile', async (req, res, next) => {
   }
 });
 
-router.put('/profile', async (req, res, next) => {
+router.put(
+  '/profile',
+  validateBody([
+    { key: 'name', type: 'string', maxLen: 120 },
+    { key: 'cohort', type: 'string', maxLen: 120 }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureUserProfileColumns();
     const userId = Number(req.user.id);
@@ -127,7 +134,19 @@ router.get('/downloads', async (req, res, next) => {
   }
 });
 
-router.post('/downloads', async (req, res, next) => {
+router.post(
+  '/downloads',
+  validateBody([
+    { key: 'lessonId', type: 'number', required: true, min: 1 },
+    { key: 'filename', type: 'string', required: true, maxLen: 255 },
+    { key: 'url', type: 'string', maxLen: 1000 },
+    { key: 'description', type: 'string', maxLen: 2000 },
+    { key: 'subjectName', type: 'string', maxLen: 255 },
+    { key: 'downloadType', type: 'string', maxLen: 32 },
+    { key: 'status', type: 'string', maxLen: 32 },
+    { key: 'fileSizeBytes', type: 'number', min: 0 }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureLearnerTables();
     const userId = Number(req.user.id);
@@ -196,7 +215,13 @@ router.post('/downloads', async (req, res, next) => {
   }
 });
 
-router.put('/downloads/:downloadId', async (req, res, next) => {
+router.put(
+  '/downloads/:downloadId',
+  validateBody([
+    { key: 'status', type: 'string', maxLen: 32 },
+    { key: 'fileSizeBytes', type: 'number', min: 0 }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureLearnerTables();
     const userId = Number(req.user.id);
@@ -246,7 +271,13 @@ router.get('/bookmarks', async (req, res, next) => {
   }
 });
 
-router.post('/bookmarks', async (req, res, next) => {
+router.post(
+  '/bookmarks',
+  validateBody([
+    { key: 'lessonId', type: 'number', required: true, min: 1 },
+    { key: 'bookmarked', type: 'boolean' }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureLearnerTables();
     const userId = Number(req.user.id);
@@ -297,7 +328,10 @@ router.get('/notes/:lessonId', async (req, res, next) => {
   }
 });
 
-router.put('/notes/:lessonId', async (req, res, next) => {
+router.put(
+  '/notes/:lessonId',
+  validateBody([{ key: 'noteText', type: 'string', maxLen: 8000 }]),
+  async (req, res, next) => {
   try {
     await ensureLearnerTables();
     const userId = Number(req.user.id);
@@ -341,7 +375,13 @@ router.get('/enrollments', async (req, res, next) => {
   }
 });
 
-router.post('/enrollments', async (req, res, next) => {
+router.post(
+  '/enrollments',
+  validateBody([
+    { key: 'lessonId', type: 'number', required: true, min: 1 },
+    { key: 'enrolled', type: 'boolean' }
+  ]),
+  async (req, res, next) => {
   try {
     await ensureLearnerTables();
     const userId = Number(req.user.id);
