@@ -77,11 +77,21 @@ function createApp() {
     const start = Date.now();
     res.on('finish', () => {
       const ms = Date.now() - start;
-      const msg = `[${req.requestId || 'no-request-id'}] ${req.method} ${req.originalUrl} ${res.statusCode} ${ms}ms`;
+      const payload = {
+        level: ms >= 1000 ? 'warn' : 'info',
+        msg: 'http_request',
+        requestId: req.requestId || null,
+        method: req.method,
+        path: req.originalUrl,
+        status: res.statusCode,
+        durationMs: ms,
+        ip: req.ip || null,
+        userAgent: req.headers['user-agent'] || null
+      };
       if (ms >= 1000) {
-        console.warn(msg);
+        console.warn(JSON.stringify(payload));
       } else {
-        console.log(msg);
+        console.log(JSON.stringify(payload));
       }
     });
     next();
@@ -132,7 +142,15 @@ function createApp() {
 
   // basic error handler
   app.use((err, req, res, next) => {
-    console.error(`[${req.requestId || 'no-request-id'}]`, err);
+    const payload = {
+      level: 'error',
+      msg: 'error',
+      requestId: req.requestId || null,
+      path: req.originalUrl,
+      method: req.method,
+      error: err?.message || 'Server error'
+    };
+    console.error(JSON.stringify(payload));
     res.status(err.status || 500).json({ error: err.message || 'Server error' });
   });
 
