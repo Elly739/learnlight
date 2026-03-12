@@ -2,9 +2,16 @@ const mysql = require('mysql2/promise');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
+const { Pool: PgPool } = require('pg');
 
 let pool = null;
 let sqliteDb = null;
+let pgPool = null;
+const usePostgres =
+  /^postgres(ql)?:\/\//i.test(String(process.env.DATABASE_URL || '')) ||
+  Boolean(process.env.PGHOST) ||
+  Boolean(process.env.PGHOSTADDR) ||
+  Boolean(process.env.PGUSER);
 const useSqlite = process.env.FORCE_SQLITE === '1' || String(process.env.USE_SQLITE || '').toLowerCase() === 'true';
 const allowSqliteFallback =
   useSqlite ||
@@ -67,6 +74,24 @@ function initMysqlPool() {
   return pool;
 }
 
+function initPostgresPool() {
+  if (pgPool) return pgPool;
+  const connectionString = String(process.env.DATABASE_URL || '').trim();
+  const sslRequired =
+    String(process.env.PGSSLMODE || '').toLowerCase() === 'require' ||
+    /sslmode=require/i.test(connectionString);
+  pgPool = new PgPool({
+    connectionString: connectionString || undefined,
+    host: connectionString ? undefined : process.env.PGHOST,
+    port: connectionString ? undefined : Number(process.env.PGPORT || 5432),
+    user: connectionString ? undefined : process.env.PGUSER,
+    password: connectionString ? undefined : process.env.PGPASSWORD,
+    database: connectionString ? undefined : process.env.PGDATABASE,
+    ssl: sslRequired ? { rejectUnauthorized: false } : undefined
+  });
+  return pgPool;
+}
+
 function initSqlite() {
   if (sqliteDb) return sqliteDb;
   try {
@@ -102,7 +127,39 @@ function sqliteRun(sql, params) {
   });
 }
 
-async function query(sql, params) {
+function rewriteSqlForPostgres(sql) {
+  let out = '';
+  let inSingle = false;
+  let paramIndex = 0;
+  for (let i = 0; i < sql.length; i += 1) {
+    const ch = sql[i];
+    if (ch === "'") {
+      if (inSingle && sql[i + 1] === "'") {
+        out += "''";
+        i += 1;
+        continue;
+      }
+      inSingle = !inSingle;
+      out += ch;
+      continue;
+    }
+    if (ch === '?' && !inSingle) {
+      paramIndex += 1;
+      out += `$${paramIndex}`;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+function appendReturning(sql, column) {
+  const q = String(sql);
+  if (/returning\s+/i.test(q)) return q;
+  return `${q} RETURNING ${column}`;
+}
+
+async function query(sql, params, options) {
   const q = String(sql).trim();
   const isDuplicateColumnError = (err) =>
     String(err?.message || '').toLowerCase().includes('duplicate column name');
@@ -122,6 +179,48 @@ async function query(sql, params) {
       console.warn('SQLite query failed:', e.message || e);
       if (q.toUpperCase().startsWith('SELECT')) return [];
       throw e;
+    }
+  }
+
+  if (usePostgres) {
+    try {
+      initPostgresPool();
+      const isSelect = q.toUpperCase().startsWith('SELECT');
+      const wantsReturning = options && options.returning;
+      const returnColumn = wantsReturning ? String(options.returning || 'id') : 'id';
+      const pgSql = wantsReturning ? appendReturning(sql, returnColumn) : sql;
+      const pgQuery = rewriteSqlForPostgres(pgSql);
+      const result = await pgPool.query(pgQuery, params || []);
+      if (isSelect) return result.rows || [];
+      if (wantsReturning) {
+        return { insertId: result.rows?.[0]?.[returnColumn] ?? null, rows: result.rows || [] };
+      }
+      return { rowCount: result.rowCount || 0 };
+    } catch (err) {
+      const code = err && err.code ? err.code : null;
+      if (
+        allowSqliteFallback &&
+        (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || String(err).toLowerCase().includes('connect'))
+      ) {
+        try {
+          initSqlite();
+          if (q.toUpperCase().startsWith('SELECT')) {
+            return await sqliteAll(sql, params);
+          } else {
+            return await sqliteRun(sql, params);
+          }
+        } catch (e) {
+          if (isDuplicateColumnError(e)) {
+            return { lastID: null, changes: 0 };
+          }
+          console.warn('SQLite fallback failed:', e.message);
+          if (q.toUpperCase().startsWith('SELECT')) return [];
+          throw e;
+        }
+      }
+      console.warn('DB query error:', err.code || err.message);
+      if (q.toUpperCase().startsWith('SELECT')) return [];
+      throw err;
     }
   }
 
@@ -160,6 +259,11 @@ async function query(sql, params) {
   }
 }
 
+function isPostgres() {
+  return usePostgres;
+}
+
 module.exports = {
-  query
+  query,
+  isPostgres
 };

@@ -1,5 +1,5 @@
 const express = require('express');
-const { query } = require('../db');
+const { query, isPostgres } = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { ensureProgressTables } = require('../progressStore');
 const { getPublicLessons } = require('../contentStore');
@@ -11,6 +11,12 @@ function todayKey() {
 }
 
 async function ensureReminderTables() {
+  if (isPostgres()) {
+    await query(
+      'CREATE TABLE IF NOT EXISTS reminder_preferences (user_id INTEGER PRIMARY KEY, email_enabled BOOLEAN NOT NULL DEFAULT FALSE, push_enabled BOOLEAN NOT NULL DEFAULT TRUE, daily_time TEXT NOT NULL DEFAULT \'18:00\', timezone TEXT NOT NULL DEFAULT \'UTC\', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'
+    );
+    return;
+  }
   try {
     await query(
       'CREATE TABLE IF NOT EXISTS reminder_preferences (user_id INTEGER PRIMARY KEY, email_enabled INTEGER NOT NULL DEFAULT 0, push_enabled INTEGER NOT NULL DEFAULT 1, daily_time TEXT NOT NULL DEFAULT "18:00", timezone TEXT NOT NULL DEFAULT "UTC", updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)'
@@ -161,4 +167,3 @@ router.get('/due', async (req, res, next) => {
 });
 
 module.exports = router;
-

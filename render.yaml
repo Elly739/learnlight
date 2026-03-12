@@ -8,7 +8,7 @@ services:
     healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
-        value: 22
+        value: 20
       - key: JWT_SECRET
         generateValue: true
       - key: ADMIN_EMAILS
