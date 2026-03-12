@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
 const authRoutes = require('./routes/auth');
 const lessonsRoutes = require('./routes/lessons');
 const quizRoutes = require('./routes/quiz');
@@ -47,8 +48,9 @@ function buildCorsOptions() {
 
 function createApp() {
   const app = express();
+  app.use(helmet());
   app.use(cors(buildCorsOptions()));
-  app.use(express.json());
+  app.use(express.json({ limit: '1mb' }));
   app.disable('x-powered-by');
 
   app.use((req, res, next) => {
@@ -64,6 +66,13 @@ function createApp() {
     standardHeaders: true,
     legacyHeaders: false
   });
+  const globalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 1000,
+    standardHeaders: true,
+    legacyHeaders: false
+  });
+  app.use(globalLimiter);
   app.use('/api/auth', authLimiter);
 
   app.get('/', (req, res) =>
