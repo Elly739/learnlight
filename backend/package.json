@@ -17,7 +17,6 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.0",
     "mysql2": "^3.3.0",
-    "@sentry/node": "^8.38.0",
     "pg": "^8.13.1",
     "sqlite3": "^5.1.7"
   }
