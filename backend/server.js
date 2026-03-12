@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 const authRoutes = require('./routes/auth');
 const lessonsRoutes = require('./routes/lessons');
 const quizRoutes = require('./routes/quiz');
@@ -48,6 +49,22 @@ function createApp() {
   const app = express();
   app.use(cors(buildCorsOptions()));
   app.use(express.json());
+  app.disable('x-powered-by');
+
+  app.use((req, res, next) => {
+    const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    req.requestId = id;
+    res.setHeader('x-request-id', id);
+    next();
+  });
+
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 50,
+    standardHeaders: true,
+    legacyHeaders: false
+  });
+  app.use('/api/auth', authLimiter);
 
   app.get('/', (req, res) =>
     res.json({
@@ -79,7 +96,7 @@ function createApp() {
 
   // basic error handler
   app.use((err, req, res, next) => {
-    console.error(err);
+    console.error(`[${req.requestId || 'no-request-id'}]`, err);
     res.status(err.status || 500).json({ error: err.message || 'Server error' });
   });
 

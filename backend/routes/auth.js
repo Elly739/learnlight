@@ -11,6 +11,17 @@ const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '')
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
 
+function isValidEmail(email) {
+  const trimmed = String(email || '').trim();
+  if (!trimmed || trimmed.length > 254) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+}
+
+function isValidPassword(password) {
+  const str = String(password || '');
+  return str.length >= 8 && str.length <= 200;
+}
+
 async function ensureUsersTable() {
   if (isPostgres()) {
     await query(
@@ -53,6 +64,8 @@ router.post('/register', async (req, res, next) => {
     await ensureUsersTable();
     const { name, email, password, cohort } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Missing fields' });
+    if (!isValidEmail(email)) return res.status(400).json({ error: 'Invalid email' });
+    if (!isValidPassword(password)) return res.status(400).json({ error: 'Invalid password' });
 
     const users = await query('SELECT id FROM users WHERE email = ?', [email]);
     if (users.length) return res.status(400).json({ error: 'Email already used' });
@@ -81,6 +94,8 @@ router.post('/login', async (req, res, next) => {
     await ensureUsersTable();
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Missing fields' });
+    if (!isValidEmail(email)) return res.status(400).json({ error: 'Invalid email' });
+    if (!isValidPassword(password)) return res.status(400).json({ error: 'Invalid password' });
 
     const users = await query('SELECT id, name, role, cohort, password_hash FROM users WHERE email = ?', [email]);
     if (!users.length) return res.status(401).json({ error: 'Invalid credentials' });
