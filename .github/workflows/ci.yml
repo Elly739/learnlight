@@ -25,3 +25,22 @@ jobs:
 
       - name: Run backend tests
         run: npm --prefix backend test
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: learnlight/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix learnlight ci
+
+      - name: Run frontend tests
+        run: npm --prefix learnlight run test:all

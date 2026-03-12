@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const Sentry = require('@sentry/node');
 const authRoutes = require('./routes/auth');
 const lessonsRoutes = require('./routes/lessons');
 const quizRoutes = require('./routes/quiz');
@@ -60,6 +61,13 @@ function buildCorsOptions() {
 
 function createApp() {
   const app = express();
+  const sentryDsn = String(process.env.SENTRY_DSN || '').trim();
+  if (sentryDsn) {
+    Sentry.init({
+      dsn: sentryDsn,
+      environment: process.env.NODE_ENV || 'development'
+    });
+  }
   app.use(helmet());
   const corsOptions = buildCorsOptions();
   app.use(cors(corsOptions));
@@ -150,6 +158,17 @@ function createApp() {
       method: req.method,
       error: err?.message || 'Server error'
     };
+    if (sentryDsn) {
+      Sentry.withScope((scope) => {
+        scope.setTag('request_id', req.requestId || 'none');
+        scope.setContext('request', {
+          method: req.method,
+          path: req.originalUrl,
+          status: err.status || 500
+        });
+        Sentry.captureException(err);
+      });
+    }
     console.error(JSON.stringify(payload));
     res.status(err.status || 500).json({ error: err.message || 'Server error' });
   });
