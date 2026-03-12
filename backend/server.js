@@ -17,7 +17,15 @@ const { query, getDbType } = require('./db');
 
 function buildCorsOptions() {
   const raw = String(process.env.ALLOWED_ORIGINS || '').trim();
-  if (!raw) return {};
+  const env = String(process.env.NODE_ENV || '').toLowerCase();
+  const isProd = env === 'production';
+  if (!raw) {
+    return isProd
+      ? { origin: false }
+      : {
+          origin: true
+        };
+  }
   const allowed = raw
     .split(',')
     .map((x) => x.trim())
@@ -42,14 +50,20 @@ function buildCorsOptions() {
       if (allowedExact.includes(origin)) return callback(null, true);
       if (allowedPatterns.some((pattern) => pattern.test(origin))) return callback(null, true);
       return callback(new Error('Not allowed by CORS'));
-    }
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 600,
+    credentials: false
   };
 }
 
 function createApp() {
   const app = express();
   app.use(helmet());
-  app.use(cors(buildCorsOptions()));
+  const corsOptions = buildCorsOptions();
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
   app.use(express.json({ limit: '1mb' }));
   app.disable('x-powered-by');
 
