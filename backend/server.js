@@ -11,6 +11,7 @@ const learnerRoutes = require('./routes/learner');
 const adminRoutes = require('./routes/admin');
 const remindersRoutes = require('./routes/reminders');
 const lessonCatalog = require('./lessonCatalog');
+const { query, getDbType } = require('./db');
 
 function buildCorsOptions() {
   const raw = String(process.env.ALLOWED_ORIGINS || '').trim();
@@ -57,6 +58,14 @@ function createApp() {
   );
 
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+  app.get('/api/health/db', async (req, res) => {
+    try {
+      await query('SELECT 1');
+      res.json({ ok: true, db: getDbType() });
+    } catch (err) {
+      res.status(500).json({ ok: false, db: getDbType(), error: err.message || 'DB error' });
+    }
+  });
 
   app.use('/api/auth', authRoutes);
   app.use('/api/lessons', lessonsRoutes);

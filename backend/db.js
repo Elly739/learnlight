@@ -263,7 +263,14 @@ function isPostgres() {
   return usePostgres;
 }
 
+function getDbType() {
+  if (usePostgres) return 'postgres';
+  if (useSqlite) return 'sqlite';
+  return 'mysql';
+}
+
 module.exports = {
   query,
-  isPostgres
+  isPostgres,
+  getDbType
 };
