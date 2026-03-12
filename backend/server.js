@@ -73,6 +73,19 @@ function createApp() {
     res.setHeader('x-request-id', id);
     next();
   });
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const ms = Date.now() - start;
+      const msg = `[${req.requestId || 'no-request-id'}] ${req.method} ${req.originalUrl} ${res.statusCode} ${ms}ms`;
+      if (ms >= 1000) {
+        console.warn(msg);
+      } else {
+        console.log(msg);
+      }
+    });
+    next();
+  });
 
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
