@@ -69,6 +69,8 @@ router.put('/preferences', async (req, res, next) => {
     const pushEnabled = Boolean(req.body?.pushEnabled);
     const dailyTime = String(req.body?.dailyTime || '18:00').slice(0, 16);
     const timezone = String(req.body?.timezone || 'UTC').slice(0, 64);
+    const emailValue = isPostgres() ? emailEnabled : (emailEnabled ? 1 : 0);
+    const pushValue = isPostgres() ? pushEnabled : (pushEnabled ? 1 : 0);
 
     const rows = await query(
       'SELECT user_id FROM reminder_preferences WHERE user_id = ?',
@@ -77,12 +79,12 @@ router.put('/preferences', async (req, res, next) => {
     if (rows.length) {
       await query(
         'UPDATE reminder_preferences SET email_enabled = ?, push_enabled = ?, daily_time = ?, timezone = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
-        [emailEnabled ? 1 : 0, pushEnabled ? 1 : 0, dailyTime, timezone, userId]
+        [emailValue, pushValue, dailyTime, timezone, userId]
       );
     } else {
       await query(
         'INSERT INTO reminder_preferences (user_id, email_enabled, push_enabled, daily_time, timezone, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
-        [userId, emailEnabled ? 1 : 0, pushEnabled ? 1 : 0, dailyTime, timezone]
+        [userId, emailValue, pushValue, dailyTime, timezone]
       );
     }
 

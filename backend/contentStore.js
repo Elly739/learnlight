@@ -89,8 +89,9 @@ async function ensureContentTables() {
 async function getPublicLessons() {
   try {
     await ensureContentTables();
+    const publishedWhere = isPostgres() ? 'is_published IS TRUE' : 'is_published = 1';
     const rows = await query(
-      'SELECT id, title, slug, description, lesson_order, estimated_minutes FROM managed_lessons WHERE is_published = 1 ORDER BY lesson_order ASC, id ASC'
+      `SELECT id, title, slug, description, lesson_order, estimated_minutes FROM managed_lessons WHERE ${publishedWhere} ORDER BY lesson_order ASC, id ASC`
     );
     if (rows.length) {
       const fallbackBySlug = new Map(
@@ -145,8 +146,9 @@ async function getSubjectsForLesson(lessonId) {
 
 async function getManagedQuizForLesson(lessonId) {
   await ensureContentTables();
+  const publishedWhere = isPostgres() ? 'is_published IS TRUE' : 'is_published = 1';
   const quizzes = await query(
-    'SELECT id, title FROM managed_quizzes WHERE lesson_id = ? AND is_published = 1 ORDER BY id DESC',
+    `SELECT id, title FROM managed_quizzes WHERE lesson_id = ? AND ${publishedWhere} ORDER BY id DESC`,
     [lessonId]
   );
   if (!quizzes.length) return null;

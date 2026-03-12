@@ -245,10 +245,11 @@ router.put('/users/:userId', requirePermission('users.write'), async (req, res, 
     const isActive = req.body?.isActive == null ? true : Boolean(req.body.isActive);
     const allowedRoles = new Set(['admin', 'student', 'editor', 'support']);
     const safeRole = allowedRoles.has(role) ? role : 'student';
+    const activeValue = isPostgres() ? isActive : (isActive ? 1 : 0);
 
     await query(
       'UPDATE users SET role = ?, cohort = ?, is_active = ? WHERE id = ?',
-      [safeRole, cohort, isActive ? 1 : 0, userId]
+      [safeRole, cohort, activeValue, userId]
     );
     await logAudit(req, 'user.updated', 'user', userId, { role: safeRole, cohort, isActive });
     res.json({ ok: true });
@@ -509,10 +510,11 @@ router.post('/lessons', requirePermission('content.write'), async (req, res, nex
     if (!title || !slug) return res.status(400).json({ error: 'Missing fields' });
     const safeWorkflow = workflowStatus || (isPublished ? 'published' : 'draft');
     const safeEstimate = Math.max(15, Number(estimatedMinutes) || 90);
+    const publishValue = isPostgres() ? Boolean(isPublished) : (isPublished ? 1 : 0);
 
     const result = await query(
       'INSERT INTO managed_lessons (title, slug, description, lesson_order, estimated_minutes, is_published, workflow_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
-      [title, slug, description || '', Number(lessonOrder) || 0, safeEstimate, isPublished ? 1 : 0, safeWorkflow],
+      [title, slug, description || '', Number(lessonOrder) || 0, safeEstimate, publishValue, safeWorkflow],
       { returning: 'id' }
     );
     await logAudit(req, 'lesson.created', 'lesson', result.insertId || result.lastID || null, {
@@ -533,9 +535,10 @@ router.put('/lessons/:lessonId', requirePermission('content.write'), async (req,
     const { title, slug, description, lessonOrder, estimatedMinutes, isPublished, workflowStatus } = req.body || {};
     const safeEstimate =
       estimatedMinutes == null ? null : Math.max(15, Number(estimatedMinutes) || 90);
+    const publishValue = isPostgres() ? Boolean(isPublished) : (isPublished ? 1 : 0);
     await query(
       'UPDATE managed_lessons SET title = ?, slug = ?, description = ?, lesson_order = ?, estimated_minutes = COALESCE(?, estimated_minutes), is_published = ?, workflow_status = COALESCE(?, workflow_status), updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [title, slug, description || '', Number(lessonOrder) || 0, safeEstimate, isPublished ? 1 : 0, workflowStatus || null, lessonId]
+      [title, slug, description || '', Number(lessonOrder) || 0, safeEstimate, publishValue, workflowStatus || null, lessonId]
     );
     await logAudit(req, 'lesson.updated', 'lesson', lessonId, { title, slug, workflowStatus });
     res.json({ ok: true });
@@ -548,9 +551,10 @@ router.post('/lessons/:lessonId/workflow/submit-review', requirePermission('work
   try {
     await ensureContentTables();
     const lessonId = Number(req.params.lessonId);
+    const publishValue = isPostgres() ? false : 0;
     await query(
-      'UPDATE managed_lessons SET workflow_status = ?, is_published = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      ['in_review', lessonId]
+      'UPDATE managed_lessons SET workflow_status = ?, is_published = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      ['in_review', publishValue, lessonId]
     );
     await logAudit(req, 'lesson.workflow.submit_review', 'lesson', lessonId, null);
     res.json({ ok: true, workflowStatus: 'in_review' });
@@ -563,9 +567,10 @@ router.post('/lessons/:lessonId/workflow/approve', requirePermission('workflow.w
   try {
     await ensureContentTables();
     const lessonId = Number(req.params.lessonId);
+    const publishValue = isPostgres() ? true : 1;
     await query(
-      'UPDATE managed_lessons SET workflow_status = ?, is_published = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      ['published', lessonId]
+      'UPDATE managed_lessons SET workflow_status = ?, is_published = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      ['published', publishValue, lessonId]
     );
     await logAudit(req, 'lesson.workflow.approve', 'lesson', lessonId, null);
     res.json({ ok: true, workflowStatus: 'published' });
@@ -578,9 +583,10 @@ router.post('/lessons/:lessonId/workflow/reject', requirePermission('workflow.wr
   try {
     await ensureContentTables();
     const lessonId = Number(req.params.lessonId);
+    const publishValue = isPostgres() ? false : 0;
     await query(
-      'UPDATE managed_lessons SET workflow_status = ?, is_published = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      ['draft', lessonId]
+      'UPDATE managed_lessons SET workflow_status = ?, is_published = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      ['draft', publishValue, lessonId]
     );
     await logAudit(req, 'lesson.workflow.reject', 'lesson', lessonId, null);
     res.json({ ok: true, workflowStatus: 'draft' });
@@ -706,14 +712,16 @@ router.post('/lessons/:lessonId/quiz', requirePermission('content.write'), async
       quizId = Number(existing[0].id);
       const prevQuestions = await query('SELECT id FROM managed_questions WHERE quiz_id = ?', [quizId]);
       for (const q of prevQuestions) {
-        await query('DELETE FROM managed_options WHERE question_id = ?', [q.id]);
+      await query('DELETE FROM managed_options WHERE question_id = ?', [q.id]);
       }
       await query('DELETE FROM managed_questions WHERE quiz_id = ?', [quizId]);
-      await query('UPDATE managed_quizzes SET title = ?, is_published = 1 WHERE id = ?', [title || 'Quiz', quizId]);
+      const publishValue = isPostgres() ? true : 1;
+      await query('UPDATE managed_quizzes SET title = ?, is_published = ? WHERE id = ?', [title || 'Quiz', publishValue, quizId]);
     } else {
+      const publishValue = isPostgres() ? true : 1;
       const insertQuiz = await query(
-        'INSERT INTO managed_quizzes (lesson_id, title, is_published, created_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)',
-        [lessonId, title || 'Quiz'],
+        'INSERT INTO managed_quizzes (lesson_id, title, is_published, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+        [lessonId, title || 'Quiz', publishValue],
         { returning: 'id' }
       );
       quizId = insertQuiz.insertId || insertQuiz.lastID;
@@ -730,9 +738,10 @@ router.post('/lessons/:lessonId/quiz', requirePermission('content.write'), async
       const options = Array.isArray(q.options) ? q.options : [];
       for (let j = 0; j < options.length; j += 1) {
         const option = options[j];
+        const correctValue = isPostgres() ? Boolean(option.is_correct) : (option.is_correct ? 1 : 0);
         await query(
           'INSERT INTO managed_options (question_id, option_text, is_correct, option_order) VALUES (?, ?, ?, ?)',
-          [questionId, option.option_text || '', option.is_correct ? 1 : 0, j]
+          [questionId, option.option_text || '', correctValue, j]
         );
       }
     }
@@ -772,18 +781,19 @@ router.post('/import/lessons-csv', requirePermission('content.write'), async (re
           : String(isPublishedFromCsv) === '1' ||
             String(isPublishedFromCsv).toLowerCase() === 'true';
       const safeWorkflow = workflowStatus || (isPublished ? 'published' : 'draft');
+      const publishValue = isPostgres() ? Boolean(isPublished) : (isPublished ? 1 : 0);
 
       const existing = await query('SELECT id FROM managed_lessons WHERE slug = ?', [slug]);
       if (existing.length) {
         await query(
           'UPDATE managed_lessons SET title = ?, description = ?, lesson_order = ?, estimated_minutes = ?, is_published = ?, workflow_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [title, description, lessonOrder, estimatedMinutes, isPublished ? 1 : 0, safeWorkflow, Number(existing[0].id)]
+          [title, description, lessonOrder, estimatedMinutes, publishValue, safeWorkflow, Number(existing[0].id)]
         );
         updated += 1;
       } else {
         await query(
           'INSERT INTO managed_lessons (title, slug, description, lesson_order, estimated_minutes, is_published, workflow_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
-          [title, slug, description, lessonOrder, estimatedMinutes, isPublished ? 1 : 0, safeWorkflow]
+          [title, slug, description, lessonOrder, estimatedMinutes, publishValue, safeWorkflow]
         );
         created += 1;
       }
